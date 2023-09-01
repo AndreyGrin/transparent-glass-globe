@@ -54,13 +54,19 @@ export async function createApp() {
     if (shortestRoute === null) {
       return res.status(404).send('No route found between the airports');
     }
-    console.log('No algorithm implemented', sourceAirport, destinationAirport, shortestRoute);
+
+    let distance = 0;
+    let hops = [sourceAirport.iata]
+    shortestRoute.map( route => {
+      distance += route.distance;
+      hops.push(route.destination.iata)
+    })
 
     return res.status(200).send({
       source,
       destination,
-      distance: 0,
-      hops: [],
+      distance: distance,
+      hops: hops,
     });
   });
 
@@ -86,8 +92,8 @@ function calculateShortestRoute(
 
     if (visited.has(airport.id)) continue;
     visited.add(airport.id);
-
-    if (airport === destination) {
+    
+    if (airport.id === destination.id) {
       const path: Route[] = [];
       let curr = destination;
       while (previous.has(curr.id)) {
@@ -101,7 +107,7 @@ function calculateShortestRoute(
     }
 
     const nextRoutes = routes.filter(
-      (route) => route.source === airport && !visited.has(route.destination.id)
+      (route) => route.source.id === airport.id && !visited.has(route.destination.id)
     );
 
     for (const nextRoute of nextRoutes) {
