@@ -3,6 +3,7 @@ import * as morgan from 'morgan';
 
 import { notNil, flatten } from '../util';
 import { Airport, Route, loadAirportData, loadRouteData } from '../data';
+import { calculateDirection } from '../data/coordinates'
 
 export async function createApp() {
   const app = express();
@@ -35,28 +36,28 @@ export async function createApp() {
   app.get('/routes/:source/:destination', async (req, res) => {
     const source = req.params['source'];
     const destination = req.params['destination'];
+    
     if (source === undefined || destination === undefined) {
       return res.status(400).send('Must provide source and destination airports');
     }
 
     const sourceAirport = airportsByCode.get(source.toLowerCase());
     const destinationAirport = airportsByCode.get(destination.toLowerCase());
+    
     if (sourceAirport === undefined || destinationAirport === undefined) {
       return res.status(404).send('No such airport, please provide a valid IATA/ICAO codes');
     }
 
-    // TODO: Figure out the route from source to destination
     const routes = await loadRouteData(); // Load route data
-
-    // Calculate the shortest route using Dijkstra's algorithm
-    const shortestRoute = calculateShortestRoute(sourceAirport, destinationAirport, routes);
+    let shortestRoute = calculateRouteWithHopsLimit(sourceAirport, destinationAirport, routes);
 
     if (shortestRoute === null) {
       return res.status(404).send('No route found between the airports');
     }
 
-    let distance = 0;
-    let hops = [sourceAirport.iata]
+    let distance:number = 0;
+    let hops:string[] = [source]
+
     shortestRoute.map( route => {
       distance += route.distance;
       hops.push(route.destination.iata)
@@ -65,7 +66,7 @@ export async function createApp() {
     return res.status(200).send({
       source,
       destination,
-      distance: distance,
+      distance: Math.round(distance),
       hops: hops,
     });
   });
@@ -73,31 +74,34 @@ export async function createApp() {
   return app;
 }
 
-function calculateShortestRoute(
+function calculateRouteWithHopsLimit(
   source: Airport,
   destination: Airport,
   routes: Route[]
 ): Route[] | null {
-  const queue: { airport: Airport; distance: number }[] = [];
+  const queue: { airport: Airport; distance: number; hops: number }[] = [];
   const visited: Set<string> = new Set();
   const distances: Map<string, number> = new Map();
   const previous: Map<string, Route> = new Map();
 
-  queue.push({ airport: source, distance: 0 });
+  queue.push({ airport: source, distance: 0, hops: 0 });
   distances.set(source.id, 0);
 
   while (queue.length > 0) {
     queue.sort((a, b) => a.distance - b.distance);
-    const { airport, distance } = queue.shift()!;
+    const { airport, distance, hops } = queue.shift()!;
 
     if (visited.has(airport.id)) continue;
+
     visited.add(airport.id);
-    
-    if (airport.id === destination.id) {
+
+    if (airport.id === destination.id && hops <= 4) {
       const path: Route[] = [];
       let curr = destination;
+      
       while (previous.has(curr.id)) {
         const prevRoute = previous.get(curr.id);
+        
         if (prevRoute) {
           path.unshift(prevRoute);
           curr = prevRoute.source;
@@ -106,21 +110,27 @@ function calculateShortestRoute(
       return path;
     }
 
+    if (hops > 4) {
+      continue; // Skip exploring further if hops exceed 4
+    }
+
     const nextRoutes = routes.filter(
-      (route) => route.source.id === airport.id && !visited.has(route.destination.id)
+      (route) => route.source.id === airport.id
+                && !visited.has(route.destination.id)
+                && calculateDirection(route.source.location, route.destination.location) === calculateDirection(route.source.location, destination.location)
     );
 
     for (const nextRoute of nextRoutes) {
       const nextAirport = nextRoute.destination;
       const nextDistance = distance + nextRoute.distance;
 
-      if (!distances.has(nextAirport.id) || nextDistance < distances.get(nextAirport.id)!) {
+      if (!distances.has(nextAirport.id) || nextDistance < distances.get(nextAirport.id)! ){
         distances.set(nextAirport.id, nextDistance);
         previous.set(nextAirport.id, nextRoute);
-        queue.push({ airport: nextAirport, distance: nextDistance });
+        queue.push({ airport: nextAirport, distance: nextDistance, hops: hops + 1 });
       }
     }
   }
 
-  return null; // No route found
+  return null; // No route found within 4 hops
 }
