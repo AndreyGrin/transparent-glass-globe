@@ -1,4 +1,8 @@
-# Sixfold backend test-task
+# NodeJs Backend test-task
+
+## About package
+
+Someone could find useful to extend this package that could help to find shortest/fastest way to go from Airport A to Airport B. Algorythm in the file `./src/app/index.ts`
 
 ## Task description
 
